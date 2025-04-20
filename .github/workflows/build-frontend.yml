@@ -1,0 +1,67 @@
+name: Build Grafana Web Frontend
+
+on:
+  - workflow_dispatch
+  - push
+
+env:
+  GRAFANA_VERSION: v11.2.7
+
+jobs:
+  build-frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install NPM dependencies
+        run: |
+          sudo npm install --global yarn
+
+      - name: Checkout grafana
+        uses: actions/checkout@v4
+        with:
+          repository: 'grafana/grafana'
+          ref: '${{ env.GRAFANA_VERSION }}'
+          path: 'grafana'
+          submodules: false
+          fetch-depth: 0
+
+      - name: Make dependencies
+        working-directory: 'grafana'
+        run: |
+          make deps-js
+
+      - name: Build frontend
+        working-directory: 'grafana'
+        run: |
+          export NODE_OPTIONS=--max-old-space-size=4096
+          make build-js
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafana-frontend-${{ github.sha }}
+          # The wildcard is a hack to preserve the directory structure
+          path: grafana/public*/
+
+  upload-release:
+    if: contains( github.ref, 'refs/tags/v' )
+    needs: build-frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download artifacts
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          name: grafana-frontend-${{ github.sha }}
+          path: artifacts
+
+      - name: Tar artifacts
+        run: |
+          tar -cz -f grafana-frontend-${{ github.ref_name }}.tgz -C ${{ steps.download.outputs.download-path }} .
+
+      - name: Upload Release Artifacts
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file: "grafana-frontend-${{ github.ref_name }}.tgz"
+          tag: ${{ github.ref }}
+          overwrite: true
+
